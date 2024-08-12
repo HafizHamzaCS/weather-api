@@ -34,3 +34,80 @@
     height: 400px;
     border: none;
 }
+
+.text-blue {
+    color: #0000FF !important; /* Blue */
+}
+
+.text-grey {
+    color: #808080 !important; /* Grey */
+}
+
+.text-orange {
+    color: #FFA500 !important; /* Orange */
+}
+
+
+/* Default state (non-mobile screens) */
+.horizontal-border {
+  display: none;
+}
+
+/* Mobile screens (max-width: 767px is a common threshold for mobile) */
+@media (max-width: 767px) {
+  .horizontal-border {
+    width: 100%;
+    height: 1px; /* Adjust the thickness of the border here */
+    background-color: #000; /* Adjust the color of the border here */
+    margin: 1em 0; /* Adjust the spacing around the border here */
+    display: block;
+    margin-top: 10px!important; /* Adjust the spacing above the border */
+    margin-bottom: 10px; /* Adjust the spacing below the border */
+  }
+}
+
+
+.skeleton {
+    background-color: #e0e0e0;
+    border-radius: 4px;
+    width: 100%;
+    height: 100%;
+    animation: skeleton-loading 1.5s infinite;
+}
+
+.skeleton-text {
+    height: 1em;
+    margin-bottom: 0.5em;
+}
+
+.skeleton-img {
+    width: 65px;
+    height: 65px;
+    margin: auto;
+}
+
+@keyframes skeleton-loading {
+    0% {
+        background-color: #e0e0e0;
+    }
+    50% {
+        background-color: #f0f0f0;
+    }
+    100% {
+        background-color: #e0e0e0;
+    }
+}
+
+
+
+.text-blue {
+    color: blue!important;
+}
+
+.text-grey {
+    color: grey!important;
+}
+
+.text-green {
+    color: green!important;
+}

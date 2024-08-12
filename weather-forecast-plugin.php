@@ -6,14 +6,12 @@ Version: 1.0
 Author: Hafiz hamza
 Author URI:https://techosolution.com
 */
-
 if (!defined('ABSPATH')) {
     exit; // Exit if accessed directly
 }
 
 // Register settings
 function wfp_register_settings() {
-    
     register_setting('wfp_settings_group', 'wfp_latitude');
     register_setting('wfp_settings_group', 'wfp_longitude');
     register_setting('wfp_settings_group', 'wfp_location_id');
@@ -34,29 +32,15 @@ function wfp_admin_enqueue_scripts($hook) {
         return;
     }
     wp_enqueue_style('wfp-admin-styles', plugins_url('assets/admin-styles.css', __FILE__));
-    wp_enqueue_script('wfp-admin-scripts', plugins_url('assets/script.js', __FILE__), array('jquery'), null, true);
+    // wp_enqueue_script('wfp-admin-scripts', plugins_url('assets/script.js', __FILE__), array('jquery'), null, true);
 }
 add_action('admin_enqueue_scripts', 'wfp_admin_enqueue_scripts');
-
-
-// Enqueue the necessary scripts and styles
-// function enqueue_weather_forecast_scripts() {
-//     wp_enqueue_script('weather-forecast-script', plugins_url('assets/script.js', __FILE__), array('jquery'), null, true);
-//     wp_localize_script('weather-forecast-script', 'wfp_vars', array(
-//         'api_url' => 'https://api.met.no/weatherapi/locationforecast/2.0/compact',
-//         'latitude' => '60.10', // Replace with dynamic latitude if needed
-//         'longitude' => '9.58', // Replace with dynamic longitude if needed
-//         'plugin_url' => plugins_url('assets/', __FILE__)
-//     ));
-// }
-// add_action('wp_enqueue_scripts', 'enqueue_weather_forecast_scripts');
-
-
 
 // Render settings page
 function wfp_render_settings_page() {
     include plugin_dir_path(__FILE__) . 'admin/settings-page.php';
 }
+
 // Add settings link on the plugin page
 function wfp_settings_link($links) {
     $settings_link = '<a href="options-general.php?page=wfp-settings">Settings</a>';
@@ -73,10 +57,14 @@ function wfp_enqueue_scripts() {
         'api_url' => 'https://api.met.no/weatherapi/locationforecast/2.0/compact',
         'latitude' => get_option('wfp_latitude', '31.4504'),
         'longitude' => get_option('wfp_longitude', '73.1350'),
-        'plugin_url' => plugins_url('/', __FILE__)
+        'plugin_url' => plugins_url('/', __FILE__),
+        'ajax_url' => admin_url('admin-ajax.php') // Add this line
     ));
 }
 add_action('wp_enqueue_scripts', 'wfp_enqueue_scripts');
+
+
+
 
 // Create a shortcode to display the forecast
 function wfp_forecast_shortcode() {
@@ -85,16 +73,63 @@ function wfp_forecast_shortcode() {
     return ob_get_clean();
 }
 add_shortcode('weather_forecast', 'wfp_forecast_shortcode');
+// Function to get weather data with caching
+function get_weather_data_with_cache($api_url) {
+    $cache_key = 'weather_data_cache_' . md5($api_url);
+    $weather_data = get_transient($cache_key);
+
+    // Check if cached data is valid JSON
+    if ($weather_data !== false && json_decode($weather_data) !== null) {
+        error_log('Fetching weather data from cache');
+        return json_encode(['source' => 'cache', 'data' => json_decode($weather_data)]);
+    }
+
+    // Fetch new data if the cache is empty or invalid
+    error_log('Fetching weather data from live API');
+    $response = wp_remote_get($api_url);
+    if (is_wp_error($response)) {
+        error_log('Error fetching weather data: ' . $response->get_error_message());
+        return false;
+    }
+
+    $weather_data = wp_remote_retrieve_body($response);
+    // Only set the cache if the fetched data is valid JSON
+    if (json_decode($weather_data) !== null) {
+        set_transient($cache_key, $weather_data, 30 * MINUTE_IN_SECONDS); // Cache for 30 minutes
+    }
+
+    return json_encode(['source' => 'live', 'data' => json_decode($weather_data)]);
+}
+
+function wfp_get_cached_weather_data() {
+    error_log('AJAX request received');
+    $api_url = isset($_GET['api_url']) ? esc_url_raw($_GET['api_url']) : '';
+    error_log('API URL: ' . $api_url);
+    if (empty($api_url)) {
+        error_log('API URL is missing');
+        wp_send_json_error('API URL is missing');
+        return;
+    }
+
+    $weather_data = get_weather_data_with_cache($api_url);
+    if ($weather_data) {
+        error_log('Weather data fetched successfully');
+        wp_send_json_success(json_decode($weather_data));
+    } else {
+        error_log('Unable to retrieve weather data');
+        wp_send_json_error('Unable to retrieve weather data');
+    }
+}
+add_action('wp_ajax_get_cached_weather_data', 'wfp_get_cached_weather_data');
+add_action('wp_ajax_nopriv_get_cached_weather_data', 'wfp_get_cached_weather_data');
 
 
+
+// Shortcode to display the meteogram
 function yr_meteogram_shortcode($atts) {
-    // Extract the attributes passed to the shortcode
-
-     // Get options from the settings page
     $location_id = get_option('wfp_location_id', '1-72837');
     $language = get_option('wfp_language', 'en');
     $mode = get_option('wfp_mode', 'light');
-
 
     $atts = shortcode_atts(
         array(
@@ -106,245 +141,28 @@ function yr_meteogram_shortcode($atts) {
         'yr_meteogram'
     );
 
-    // Build the URL based on the provided attributes
     $base_url = "https://www.yr.no/{$atts['language']}/content/{$atts['location_id']}/meteogram.svg";
     if ($atts['mode'] === 'dark') {
         $base_url .= '?mode=dark';
     }
 
-    // Return the iframe code
     return '<iframe src="' . esc_url($base_url) . '" width="100%" height="400" frameborder="0"></iframe>';
 }
+
 add_shortcode('hj_meteogram', 'yr_meteogram_shortcode');
-// Create a shortcode to display the forecast
-function wfc_custom_forecast_shortcode() {
-    ob_start();
-?>
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
-    <title></title>
-    <style type="text/css">
-        *{
-            margin: 0;
-            padding: 0;
-        }
-        body{
-            font-family: Arial, sans-serif;
-        }
-        .bh-Weersver-heading{
-            color: #E43030;
-            font-size: 2em;
-            font-family: 'Roboto', sans-serif;
-            font-weight: 700;
-        }
-        .bh-Webcams-link{
-            background-color: #e2f1ff;
-            font-size: 16px;
-            padding: 1px 8px;
-            display: inline-flex;
-            color: #278ac6;
-            text-decoration: none;
-        }
-        .bah-Vandaag{
-            background: #7AD7F0;
-            padding: 7px 0;
-        }
-
-        @media only screen and (min-width: 769px) {
-          .bh-col-bdr {
-            border-right: 1px solid black;
-          }
-        }
-        @media only screen and (max-width: 768px) {
-          .bh-col-bdr2 {
-            border-top: 1px solid black;
-          }
-        }
-    </style>
-</head>
-<body>
-    <div class="container-fluid">
 
 
-        <!-- 8-daagse section -->
-        <div class="container-fluid">
-            <div class="row mt-5">
-                <div class="col-12" style="color: #3251a0;">
-                    <!-- <h2 class="fw-bold text-center">8-daagse weersverwachting</h2> -->
-                </div>              
-            </div>
-            <!-- weather section 1-->
-            <div class="row mt-3">
-                <div class="col-12 text-center bah-Vandaag">
-                    <span class="fw-bold fs-5 text-white">Vandaag Donderdag 20 Juni</span>
-                </div>
-                <!-- col-1 -->
-                <div class="col-6 col-md-3 col-sm-6 text-center mt-3 border-end border-dark">
-                    <p>Ochtend</p>
-                    <img src="https://www.ski-livigno.nl/wp-content/uploads/2024/06/cloud.jpg" width="65px">
-                    <p>
-                        <span class="text-danger">28 °C</span><br>
-                        <span class="text-info">23 °C</span>
-                    </p>
-                    <p>
-                        <span class="text-secondary">NEERSLAG</span> <br> 2.5 mm
-                    </p>
-                </div>
-                <!-- col-2 -->
-                <div class="col-6 col-md-3 col-sm-6 text-center mt-3 bh-col-bdr">
-                    <p>Middag</p>
-                    <img src="https://www.ski-livigno.nl/wp-content/uploads/2024/06/cloud.jpg" width="65px">
-                    <p>
-                        <span class="text-danger">28 °C</span><br>
-                        <span class="text-info">23 °C</span>
-                    </p>
-                    <p>
-                        <span class="text-secondary">NEERSLAG</span> <br> 2.5 mm
-                    </p>
-                </div>
-                <!-- col-3 -->
-                <div class="col-6 col-md-3 col-sm-6 text-center mt-3 bh-col-bdr2 border-end border-dark">
-                    <p>Avond</p>
-                    <img src="https://www.ski-livigno.nl/wp-content/uploads/2024/06/cloud.jpg" width="65px">
-                    <p>
-                        <span class="text-danger">28 °C</span><br>
-                        <span class="text-info">23 °C</span>
-                    </p>
-                    <p>
-                        <span class="text-secondary">NEERSLAG</span> <br> 2.5 mm
-                    </p>
-                </div>
-                <!-- col-4 -->
-                <div class="col-6 col-md-3 col-sm-6 text-center bh-col-bdr2 mt-3">
-                    <p>Nacht</p>
-                    <img src="https://www.ski-livigno.nl/wp-content/uploads/2024/06/cloud.jpg" width="65px">
-                    <p>
-                        <span class="text-danger">28 °C</span><br>
-                        <span class="text-info">23 °C</span>
-                    </p>
-                    <p>
-                        <span class="text-secondary">NEERSLAG</span> <br> 2.5 mm
-                    </p>
-                </div>
-            </div>
-            <!-- weather section 2-->
-            <div class="row mt-3">
-                <div class="col-12 text-center bah-Vandaag">
-                    <span class="fw-bold fs-5 text-white">Vandaag Donderdag 20 Juni</span>
-                </div>
-                <!-- col-1 -->
-                <div class="col-6 col-md-3 col-sm-6 text-center mt-3 border-end border-dark">
-                    <p>Ochtend</p>
-                    <img src="https://www.ski-livigno.nl/wp-content/uploads/2024/06/cloud.jpg" width="65px">
-                    <p>
-                        <span class="text-danger">28 °C</span><br>
-                        <span class="text-info">23 °C</span>
-                    </p>
-                    <p>
-                        <span class="text-secondary">NEERSLAG</span> <br> 2.5 mm
-                    </p>
-                </div>
-                <!-- col-2 -->
-                <div class="col-6 col-md-3 col-sm-6 text-center mt-3 bh-col-bdr">
-                    <p>Middag</p>
-                    <img src="https://www.ski-livigno.nl/wp-content/uploads/2024/06/cloud.jpg" width="65px">
-                    <p>
-                        <span class="text-danger">28 °C</span><br>
-                        <span class="text-info">23 °C</span>
-                    </p>
-                    <p>
-                        <span class="text-secondary">NEERSLAG</span> <br> 2.5 mm
-                    </p>
-                </div>
-                <!-- col-3 -->
-                <div class="col-6 col-md-3 col-sm-6 text-center mt-3 bh-col-bdr2 border-end border-dark">
-                    <p>Avond</p>
-                    <img src="https://www.ski-livigno.nl/wp-content/uploads/2024/06/cloud.jpg" width="65px">
-                    <p>
-                        <span class="text-danger">28 °C</span><br>
-                        <span class="text-info">23 °C</span>
-                    </p>
-                    <p>
-                        <span class="text-secondary">NEERSLAG</span> <br> 2.5 mm
-                    </p>
-                </div>
-                <!-- col-4 -->
-                <div class="col-6 col-md-3 col-sm-6 text-center bh-col-bdr2 mt-3">
-                    <p>Nacht</p>
-                    <img src="https://www.ski-livigno.nl/wp-content/uploads/2024/06/cloud.jpg" width="65px">
-                    <p>
-                        <span class="text-danger">28 °C</span><br>
-                        <span class="text-info">23 °C</span>
-                    </p>
-                    <p>
-                        <span class="text-secondary">NEERSLAG</span> <br> 2.5 mm
-                    </p>
-                </div>
-            </div>
-            <!-- weatther section 3 -->
-            <div class="row mt-3">
-                <div class="col-12 text-center bah-Vandaag">
-                    <span class="fw-bold fs-5 text-white">Vandaag Donderdag 20 Juni</span>
-                </div>
-                <!-- col-1 -->
-                <div class="col-6 col-md-3 col-sm-6 text-center mt-3 border-end border-dark">
-                    <p>Ochtend</p>
-                    <img src="https://www.ski-livigno.nl/wp-content/uploads/2024/06/cloud.jpg" width="65px">
-                    <p>
-                        <span class="text-danger">28 °C</span><br>
-                        <span class="text-info">23 °C</span>
-                    </p>
-                    <p>
-                        <span class="text-secondary">NEERSLAG</span> <br> 2.5 mm
-                    </p>
-                </div>
-                <!-- col-2 -->
-                <div class="col-6 col-md-3 col-sm-6 text-center mt-3 bh-col-bdr">
-                    <p>Middag</p>
-                    <img src="https://www.ski-livigno.nl/wp-content/uploads/2024/06/cloud.jpg" width="65px">
-                    <p>
-                        <span class="text-danger">28 °C</span><br>
-                        <span class="text-info">23 °C</span>
-                    </p>
-                    <p>
-                        <span class="text-secondary">NEERSLAG</span> <br> 2.5 mm
-                    </p>
-                </div>
-                <!-- col-3 -->
-                <div class="col-6 col-md-3 col-sm-6 text-center mt-3 bh-col-bdr2 border-end border-dark">
-                    <p>Avond</p>
-                    <img src="https://www.ski-livigno.nl/wp-content/uploads/2024/06/cloud.jpg" width="65px">
-                    <p>
-                        <span class="text-danger">28 °C</span><br>
-                        <span class="text-info">23 °C</span>
-                    </p>
-                    <p>
-                        <span class="text-secondary">NEERSLAG</span> <br> 2.5 mm
-                    </p>
-                </div>
-                <!-- col-4 -->
-                <div class="col-6 col-md-3 col-sm-6 text-center bh-col-bdr2 mt-3">
-                    <p>Nacht</p>
-                    <img src="https://www.ski-livigno.nl/wp-content/uploads/2024/06/cloud.jpg" width="65px">
-                    <p>
-                        <span class="text-danger">28 °C</span><br>
-                        <span class="text-info">23 °C</span>
-                    </p>
-                    <p>
-                        <span class="text-secondary">NEERSLAG</span> <br> 2.5 mm
-                    </p>
-                </div>
-            </div>
-        </div>
-    </div>
 
-</body>
-<link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js">
-</html>
-<?php 
+function test_wp_remote_get() {
+    $api_url = 'https://api.met.no/weatherapi/locationforecast/2.0/compact?lat=46.538345589033945&lon=10.134855594167025';
+    $response = wp_remote_get($api_url);
+
+    if (is_wp_error($response)) {
+        $error_message = $response->get_error_message();
+        error_log('Something went wrong: ' . $error_message);
+    } else {
+        $body = wp_remote_retrieve_body($response);
+        error_log('Response: ' . $body);
+    }
 }
-add_shortcode('custom_weather_forecast', 'wfc_custom_forecast_shortcode');
+add_action('wp_head', 'test_wp_remote_get');
