@@ -150,19 +150,3 @@ function yr_meteogram_shortcode($atts) {
 }
 
 add_shortcode('hj_meteogram', 'yr_meteogram_shortcode');
-
-
-
-function test_wp_remote_get() {
-    $api_url = 'https://api.met.no/weatherapi/locationforecast/2.0/compact?lat=46.538345589033945&lon=10.134855594167025';
-    $response = wp_remote_get($api_url);
-
-    if (is_wp_error($response)) {
-        $error_message = $response->get_error_message();
-        error_log('Something went wrong: ' . $error_message);
-    } else {
-        $body = wp_remote_retrieve_body($response);
-        error_log('Response: ' . $body);
-    }
-}
-add_action('wp_head', 'test_wp_remote_get');
