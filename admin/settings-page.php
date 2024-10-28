@@ -21,9 +21,7 @@
                 <td>
                     <select name="wfp_language">
                         <option value="en" <?php selected(get_option('wfp_language'), 'en'); ?>>English</option>
-                      <!--   <option value="nb" <?php //selected(get_option('wfp_language'), 'nb'); ?>>Norwegian Bokmål</option>
-                        <option value="nn" <?php //selected(get_option('wfp_language'), 'nn'); ?>>Norwegian Nynorsk</option>
-                        <option value="sme" <?php //selected(get_option('wfp_language'), 'sme'); ?>>Northern Sami</option> -->
+                    
                     </select>
                 </td>
             </tr>
@@ -35,7 +33,12 @@
                         <option value="dark" <?php selected(get_option('wfp_mode'), 'dark'); ?>>Dark</option>
                     </select>
                 </td>
+            </tr>  
+             <tr valign="top">
+                <th scope="row">Weather Page Shortcode</th>
+                <td><span>[weather_forecast]</span></td>
             </tr>
+
         </table>
         <?php submit_button(); ?>
     </form>

